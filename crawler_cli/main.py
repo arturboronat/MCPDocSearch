@@ -24,14 +24,18 @@ from .markdown import (
 )  # Import the custom generator # noqa: E501
 from .config import (
     DEFAULT_CACHE_MODE,
+    DEFAULT_CONCURRENCY,
     DEFAULT_CONTENT_TYPES,
     DEFAULT_EXCLUDE_PATTERNS,
     DEFAULT_INCLUDE_PATTERNS,
     DEFAULT_KEYWORDS,
     DEFAULT_KEYWORD_WEIGHT,
     DEFAULT_MAX_DEPTH,
-    # DEFAULT_OUTPUT_FILENAME, # Unused
     DEFAULT_OUTPUT_TITLE,
+    DEFAULT_REQUEST_DELAY,
+    DEFAULT_BROWSER_TIMEOUT,
+    DEFAULT_BROWSER_ARGS,
+    HF_TOKEN,
 )
 from .crawler import run_crawl
 from .utils import err_console
@@ -151,6 +155,29 @@ def main(
         bool,
         typer.Option("--stream/--no-stream", help="Process results as they arrive."),
     ] = True,
+    concurrency: Annotated[
+        int,
+        typer.Option(
+            "--concurrency",
+            "-c",
+            help=(
+                "Number of concurrent requests (1 for safe, rate-limited crawling). "
+                "Higher values may trigger 429 errors."
+            ),
+            min=1,
+            max=10,
+        ),
+    ] = DEFAULT_CONCURRENCY,
+    request_delay: Annotated[
+        float,
+        typer.Option(
+            "--request-delay",
+            help=(
+                "Delay in seconds between requests to respect server resources. "
+                "Default: 2 seconds."
+            ),
+        ),
+    ] = DEFAULT_REQUEST_DELAY,
     # Accept cache_mode as string, parse manually later
     cache_mode_str: Annotated[
         str,
@@ -303,7 +330,8 @@ def main(
 
     # --- Configure Browser ---
     browser_config = BrowserConfig(
-        verbose=verbose
+        verbose=verbose,
+        extra_args=DEFAULT_BROWSER_ARGS,
         # Add other browser configs here if needed later
     )
 
@@ -322,6 +350,9 @@ def main(
         # cache_mode=cache_mode, # Set below
         exclude_external_links=exclude_markdown_external_links,
         only_text=only_text,
+        # Request throttling to avoid 429 rate-limiting
+        semaphore_count=concurrency,  # Controls concurrency
+        mean_delay=request_delay,      # Delay between requests in seconds
         # Add wait_for parameter using our determined value
         wait_for=final_wait_for,
         # Add js_code parameter if provided
@@ -354,7 +385,7 @@ def main(
             """ if wait_for_js_render else None
         ),
         # Add page_timeout (milliseconds)
-        page_timeout=page_load_timeout * 1000,  # Convert to milliseconds
+        page_timeout=DEFAULT_BROWSER_TIMEOUT * 1000,  # Convert to milliseconds
     )
 
     # --- Manually Parse Cache Mode ---
@@ -383,6 +414,7 @@ def main(
                 browser_config=browser_config,
                 run_config=merged_run_config,
                 verbose=verbose,
+                request_delay=request_delay,
             )
         )
     except typer.Exit:

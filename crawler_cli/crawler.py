@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+import time
 
 import typer
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, BrowserConfig
@@ -14,6 +15,7 @@ async def run_crawl(
     browser_config: BrowserConfig,
     run_config: CrawlerRunConfig,
     verbose: bool,
+    request_delay: float = 2.0,
 ):
     """
     Runs the web crawler with the given configurations.
@@ -33,6 +35,7 @@ async def run_crawl(
 
     processed_count = 0
     error_count = 0
+    last_request_time = time.time()
     async with AsyncWebCrawler(config=browser_config) as crawler:
         if verbose:
             print(f"Starting crawl from: {start_url}")
@@ -41,12 +44,24 @@ async def run_crawl(
                 f"Max depth: {run_config.deep_crawl_strategy.max_depth if run_config.deep_crawl_strategy else 'N/A'}"
             )
             print(f"Cache mode: {run_config.cache_mode.name}")
+            print(f"Request delay: {request_delay}s between pages")
+            print(f"Concurrency (semaphore): {run_config.semaphore_count if hasattr(run_config, 'semaphore_count') else 'N/A'}")
+            print(f"Mean delay: {run_config.mean_delay if hasattr(run_config, 'mean_delay') else 'N/A'}s")
             # Add more verbose output if needed
 
         try:
             result_generator = await crawler.arun(start_url, config=run_config)
 
             async for result in result_generator:
+                # Apply delay between requests to avoid rate-limiting
+                elapsed = time.time() - last_request_time
+                if elapsed < request_delay and processed_count > 0:
+                    delay_needed = request_delay - elapsed
+                    if verbose:
+                        print(f"[Throttle] Waiting {delay_needed:.1f}s before next request...")
+                    await asyncio.sleep(delay_needed)
+                last_request_time = time.time()
+
                 if result.success:
                     processed_count += 1
                     if verbose:
